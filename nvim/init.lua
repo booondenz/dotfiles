@@ -169,6 +169,58 @@ require('conform').setup({
         lsp_fallback = true,
     },
 })
+
+-----------------------------------------------------------
+-- 11. Makefile 快捷键: <leader>b = build, <leader>r = run, <leader>t = test
+-----------------------------------------------------------
+local make_win = nil
+
+-- 向上查找项目根目录 (go.work / go.mod / .git / Makefile)
+local function project_root()
+    return vim.fs.root(0, { "go.work", "go.mod", ".git", "Makefile", "makefile", "GNUmakefile" })
+        or vim.fn.getcwd()
+end
+
+-- 拼接要执行的命令: 有 Makefile 用 make, 没有 Makefile 的 Go 项目用 go 兜底
+local function make_command(target)
+    local root = project_root()
+    local esc = vim.fn.shellescape
+    if vim.fn.filereadable(root .. "/Makefile") == 1
+        or vim.fn.filereadable(root .. "/makefile") == 1
+        or vim.fn.filereadable(root .. "/GNUmakefile") == 1 then
+        return ("cd %s && make %s"):format(esc(root), target)
+    end
+    if target == "build" then
+        return ("cd %s && go build ./..."):format(esc(root))
+    elseif target == "run" then
+        return ("cd %s && go run ."):format(esc(root))
+    else
+        return ("cd %s && go test ./..."):format(esc(root))
+    end
+end
+
+local function run_make(target)
+    vim.cmd("silent! update") -- 先保存当前文件
+    -- 关闭上一次的 make 终端窗口 (并结束旧进程)
+    if make_win and vim.api.nvim_win_is_valid(make_win) then
+        local old_buf = vim.api.nvim_win_get_buf(make_win)
+        local chan = vim.bo[old_buf].channel
+        if chan and chan > 0 then
+            pcall(vim.fn.jobstop, chan)
+        end
+        vim.api.nvim_win_close(make_win, true)
+        pcall(vim.api.nvim_buf_delete, old_buf, { force = true })
+    end
+    -- 底部开一个 12 行高的终端窗口运行命令
+    vim.cmd("botright 12split | terminal " .. make_command(target))
+    make_win = vim.api.nvim_get_current_win()
+    vim.cmd("startinsert")
+end
+
+k.set("n", "<leader>b", function() run_make("build") end, { desc = "Make: build" })
+k.set("n", "<leader>r", function() run_make("run") end, { desc = "Make: run" })
+k.set("n", "<leader>t", function() run_make("test") end, { desc = "Make: test" })
+
 -- 强制浮动窗口透明 (背景和边框)
 vim.api.nvim_set_hl(0, "NormalFloat", { bg = "none" })
 vim.api.nvim_set_hl(0, "FloatBorder", { bg = "none", fg = "none" })
